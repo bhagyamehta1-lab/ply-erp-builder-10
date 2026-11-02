@@ -1,8 +1,8 @@
 name: Private ERP Isolated Worker
 
 on:
-  repository_dispatch:
-    types: [plymetrix-ci]
+  push:
+    branches: [ main ]
   workflow_dispatch:
     inputs:
       commit_sha:
@@ -18,6 +18,8 @@ on:
         description: 'Builder Repo Name'
         required: true
         type: string
+  repository_dispatch:
+    types: [plymetrix-ci]
 
 permissions:
   contents: read
@@ -28,6 +30,7 @@ concurrency:
 
 jobs:
   execute:
+    if: github.event_name != 'push'
     runs-on: ${{ (github.event_name == 'workflow_dispatch' && inputs.suite || github.event.client_payload.suite) == 'windows-frontend-build' && 'windows-latest' || 'ubuntu-latest' }}
     timeout-minutes: 55
     env:
