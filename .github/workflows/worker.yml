@@ -3,23 +3,38 @@ name: Private ERP Isolated Worker
 on:
   repository_dispatch:
     types: [plymetrix-ci]
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 'Private Commit SHA'
+        required: true
+        default: '365a30562069ed25a67a8608811e77907fab0c2e'
+        type: string
+      suite:
+        description: 'Suite Name'
+        required: true
+        type: string
+      builder_repo:
+        description: 'Builder Repo Name'
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: plymetrix-${{ github.repository }}-${{ github.event.client_payload.commit_sha }}
+  group: plymetrix-${{ github.repository }}-${{ github.event_name == 'workflow_dispatch' && inputs.commit_sha || github.event.client_payload.commit_sha }}
   cancel-in-progress: false
 
 jobs:
   execute:
-    runs-on: ${{ github.event.client_payload.suite == 'windows-frontend-build' && 'windows-latest' || 'ubuntu-latest' }}
+    runs-on: ${{ (github.event_name == 'workflow_dispatch' && inputs.suite || github.event.client_payload.suite) == 'windows-frontend-build' && 'windows-latest' || 'ubuntu-latest' }}
     timeout-minutes: 55
     env:
       PRIVATE_REPO: bhagyamehta1-lab/PLY_ERP
-      SHA: ${{ github.event.client_payload.commit_sha }}
-      SUITE: ${{ github.event.client_payload.suite }}
-      EXPECTED_REPO: ${{ github.event.client_payload.builder_repo }}
+      SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.commit_sha || github.event.client_payload.commit_sha }}
+      SUITE: ${{ github.event_name == 'workflow_dispatch' && inputs.suite || github.event.client_payload.suite }}
+      EXPECTED_REPO: ${{ github.event_name == 'workflow_dispatch' && inputs.builder_repo || github.event.client_payload.builder_repo }}
     steps:
       - name: Validate dispatch payload
         shell: bash
@@ -49,7 +64,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: bhagyamehta1-lab/PLY_ERP
-          ref: ${{ github.event.client_payload.commit_sha }}
+          ref: ${{ env.SHA }}
           token: ${{ secrets.PRIVATE_ERP_READ_TOKEN }}
           path: private-source
           persist-credentials: false
