@@ -106,10 +106,25 @@ jobs:
         working-directory: private-source
         shell: bash
         run: |
-          if cargo test --manifest-path src-tauri/Cargo.toml >"$RUNNER_TEMP/private-tauri-tests.log" 2>&1; then
+          if cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast >"$RUNNER_TEMP/private-tauri-tests.log" 2>&1; then
             echo "Tauri Rust tests passed."
           else
-            failed_tests=$(grep -E '^test .* \.\.\. FAILED
+            # Prefer failed test identifiers; if compilation failed, capture the first compiler error.
+            failed_tests=$(grep -E '^test .* \.\.\. FAILED$' "$RUNNER_TEMP/private-tauri-tests.log" 2>/dev/null | sed -E 's/^test (.*) \.\.\. FAILED$/\1/' | paste -sd ',' - | cut -c1-85 || true)
+            if [[ -n "$failed_tests" ]]; then
+              description="Failed tests: $failed_tests"
+            else
+              diagnostic=$(grep -m1 -E '^(error([[A-Z0-9]+\])?:|[[:space:]]*error:|could not compile )' "$RUNNER_TEMP/private-tauri-tests.log" 2>/dev/null | sed -E 's#^.*private-source/##' | tr '\n' ' ' | cut -c1-90 || true)
+              if [[ -n "$diagnostic" ]]; then
+                description="Cargo: $diagnostic"
+              else
+                description="Cargo test failed; inspect private runner diagnostics"
+              fi
+            fi
+            printf '%s' "$description" > "$RUNNER_TEMP/ci-failure-description" || true
+            echo "Tauri Rust tests failed; private output suppressed."
+            exit 1
+          fi
 
       - name: Native storage proof-of-concept tests
         if: env.SUITE == 'storage-poc-tests'
