@@ -106,8 +106,10 @@ jobs:
         working-directory: private-source
         shell: bash
         run: |
-          cargo test --manifest-path src-tauri/Cargo.toml >"$RUNNER_TEMP/private-tauri-tests.log" 2>&1 || { echo "Tauri Rust tests failed; private output suppressed."; exit 1; }
-          echo "Tauri Rust tests passed."
+          if cargo test --manifest-path src-tauri/Cargo.toml >"$RUNNER_TEMP/private-tauri-tests.log" 2>&1; then
+            echo "Tauri Rust tests passed."
+          else
+            failed_tests=$(grep -E '^test .* \.\.\. FAILED
 
       - name: Native storage proof-of-concept tests
         if: env.SUITE == 'storage-poc-tests'
@@ -122,8 +124,97 @@ jobs:
         working-directory: private-source
         shell: bash
         run: |
-          cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check >"$RUNNER_TEMP/private-fmt.log" 2>&1 || { echo "Rust formatting check failed; private output suppressed."; exit 1; }
-          echo "Rust formatting check passed."
+          if cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check >"$RUNNER_TEMP/private-fmt.log" 2>&1; then
+            echo "Rust formatting check passed."
+          else
+            fmt_files=$(grep '^Diff in ' "$RUNNER_TEMP/private-fmt.log" | sed -E 's/^Diff in ([^:]+):.*/\1/' | xargs -r -n1 basename | sort -u | paste -sd ',' - || true)
+            fmt_count=$(printf '%s' "$fmt_files" | awk -F',' '{if ($1 == "") print 0; else print NF}')
+            if [[ "$fmt_count" -gt 0 ]]; then
+              description="fmt diff in $fmt_count files: $fmt_files"
+            else
+              description="Rust formatting check failed"
+            fi
+            printf '%s' "$description" | cut -c1-120 > "$RUNNER_TEMP/ci-failure-description"
+            echo "Rust formatting check failed; private output suppressed."
+            exit 1
+          fi
+
+      - name: Cargo metadata validation
+        if: env.SUITE == 'cargo-metadata'
+        working-directory: private-source
+        shell: bash
+        run: |
+          cargo metadata --manifest-path src-tauri/Cargo.toml --format-version 1 --no-deps >"$RUNNER_TEMP/private-cargo-metadata.json" 2>"$RUNNER_TEMP/private-cargo-metadata.log" || { echo "Cargo metadata validation failed; private output suppressed."; exit 1; }
+          echo "Cargo metadata validation passed."
+
+      - name: Frontend dependency tree validation
+        if: env.SUITE == 'dependency-audit'
+        working-directory: private-source
+        shell: bash
+        run: |
+          npm ls --depth=0 >"$RUNNER_TEMP/private-npm-tree.log" 2>&1 || { echo "Frontend dependency tree validation failed; private output suppressed."; exit 1; }
+          echo "Frontend dependency tree validation passed (this is not a vulnerability audit)."
+
+      - name: Final acceptance marker
+        if: env.SUITE == 'acceptance-smoke'
+        run: echo "Frontend typecheck/build and Tauri Rust tests passed for the exact private commit."
+
+      - name: Report final status to private commit
+        if: always() && env.SHA != ''
+        env:
+          STATUS_TOKEN: ${{ secrets.PRIVATE_ERP_STATUS_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ job.status }}" == "success" ]]; then state=success; else state=failure; fi
+          description="Worker result: $state"
+          if [[ -f "$RUNNER_TEMP/ci-failure-description" ]]; then
+            description=$(cat "$RUNNER_TEMP/ci-failure-description" | cut -c1-120)
+          fi
+          body=$(jq -nc --arg state "$state" --arg context "ci-bridge/$SUITE" --arg description "$description" \
+            '{state:$state,context:$context,description:$description}')
+          code=$(curl -sS -o "$RUNNER_TEMP/final-status.json" -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $STATUS_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$PRIVATE_REPO/statuses/$SHA" -d "$body")
+          [[ "$code" == "201" ]] || { echo "Final status update failed (HTTP $code)."; exit 1; }
+ "$RUNNER_TEMP/private-tauri-tests.log" | awk '{print $2}' | paste -sd ',' - | cut -c1-100 || true)
+            if [[ -n "$failed_tests" ]]; then
+              description="Failed tests: $failed_tests"
+            else
+              description="Tauri Rust tests failed; signature unavailable"
+            fi
+            printf '%s' "$description" > "$RUNNER_TEMP/ci-failure-description"
+            echo "Tauri Rust tests failed; private output suppressed."
+            exit 1
+          fi
+
+      - name: Native storage proof-of-concept tests
+        if: env.SUITE == 'storage-poc-tests'
+        working-directory: private-source
+        shell: bash
+        run: |
+          cargo test --manifest-path native/storage-poc/Cargo.toml >"$RUNNER_TEMP/private-storage-tests.log" 2>&1 || { echo "Storage tests failed; private output suppressed."; exit 1; }
+          echo "Storage proof-of-concept tests passed."
+
+      - name: Rust formatting check
+        if: env.SUITE == 'rust-format-check'
+        working-directory: private-source
+        shell: bash
+        run: |
+          if cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check >"$RUNNER_TEMP/private-fmt.log" 2>&1; then
+            echo "Rust formatting check passed."
+          else
+            fmt_files=$(grep '^Diff in ' "$RUNNER_TEMP/private-fmt.log" | sed -E 's/^Diff in ([^:]+):.*/\1/' | xargs -r -n1 basename | sort -u | paste -sd ',' - || true)
+            fmt_count=$(printf '%s' "$fmt_files" | awk -F',' '{if ($1 == "") print 0; else print NF}')
+            if [[ "$fmt_count" -gt 0 ]]; then
+              description="fmt diff in $fmt_count files: $fmt_files"
+            else
+              description="Rust formatting check failed"
+            fi
+            printf '%s' "$description" | cut -c1-120 > "$RUNNER_TEMP/ci-failure-description"
+            echo "Rust formatting check failed; private output suppressed."
+            exit 1
+          fi
 
       - name: Cargo metadata validation
         if: env.SUITE == 'cargo-metadata'
