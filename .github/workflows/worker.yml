@@ -106,25 +106,18 @@ jobs:
         working-directory: private-source
         shell: bash
         run: |
-          if cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast >"$RUNNER_TEMP/private-tauri-tests.log" 2>&1; then
-            echo "Tauri Rust tests passed."
-          else
-            # Prefer failed test identifiers; if compilation failed, capture the first compiler error.
-            failed_tests=$(grep -E '^test .* \.\.\. FAILED$' "$RUNNER_TEMP/private-tauri-tests.log" 2>/dev/null | sed -E 's/^test (.*) \.\.\. FAILED$/\1/' | paste -sd ',' - | cut -c1-85 || true)
-            if [[ -n "$failed_tests" ]]; then
-              description="Failed tests: $failed_tests"
-            else
-              diagnostic=$(grep -m1 -E '^(error([[A-Z0-9]+\])?:|[[:space:]]*error:|could not compile )' "$RUNNER_TEMP/private-tauri-tests.log" 2>/dev/null | sed -E 's#^.*private-source/##' | tr '\n' ' ' | cut -c1-90 || true)
-              if [[ -n "$diagnostic" ]]; then
-                description="Cargo: $diagnostic"
-              else
-                description="Cargo test failed; inspect private runner diagnostics"
-              fi
-            fi
-            printf '%s' "$description" > "$RUNNER_TEMP/ci-failure-description" || true
+          set +e
+          cargo test --manifest-path src-tauri/Cargo.toml --no-fail-fast >/tmp/test.log 2>&1
+          TEST_EXIT=$?
+          set -e
+          if [ "$TEST_EXIT" -ne 0 ]; then
+            FAILED_SIGS=$(grep -E '^test .* \.\.\. FAILED' /tmp/test.log | awk '{print $2}' | tr '\n' ',' | cut -c1-100 || true)
+            [ -n "$FAILED_SIGS" ] || FAILED_SIGS=$(grep -m1 -E 'error\[E[0-9]+\]' /tmp/test.log | cut -c1-100 || true)
+            printf '%s\n' "${FAILED_SIGS:-Test run failed with code $TEST_EXIT}" > "$RUNNER_TEMP/ci-failure-description" || true
             echo "Tauri Rust tests failed; private output suppressed."
             exit 1
           fi
+          echo "Tauri Rust tests passed."
 
       - name: Native storage proof-of-concept tests
         if: env.SUITE == 'storage-poc-tests'
