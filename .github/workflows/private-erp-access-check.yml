@@ -1,0 +1,25 @@
+name: Private ERP access verification
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/private-erp-access-check.yml"
+permissions:
+  contents: read
+jobs:
+  verify-private-read:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout private ERP (read-only verification)
+        uses: actions/checkout@v4
+        with:
+          repository: bhagyamehta1-lab/PLY_ERP
+          ref: main
+          token: ${{ secrets.PRIVATE_PAT }}
+          path: private-erp
+          persist-credentials: false
+      - name: Confirm checkout without exposing source
+        shell: bash
+        run: |
+          test -d private-erp/.git
+          git -C private-erp rev-parse --verify HEAD
